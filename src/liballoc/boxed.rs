@@ -55,6 +55,7 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
+use abort_adapter::AbortAdapter;
 use heap::{Heap, Layout, Alloc};
 use raw_vec::RawVec;
 
@@ -91,17 +92,7 @@ use str::from_boxed_utf8_unchecked;
 #[unstable(feature = "box_heap",
            reason = "may be renamed; uncertain about custom allocator design",
            issue = "27779")]
-pub const HEAP: ExchangeHeapSingleton = ExchangeHeapSingleton { _force_singleton: () };
-
-/// This the singleton type used solely for `boxed::HEAP`.
-#[unstable(feature = "box_heap",
-           reason = "may be renamed; uncertain about custom allocator design",
-           issue = "27779")]
-#[allow(missing_debug_implementations)]
-#[derive(Copy, Clone)]
-pub struct ExchangeHeapSingleton {
-    _force_singleton: (),
-}
+pub const HEAP: AbortAdapter<Heap> = AbortAdapter(Heap);
 
 /// A pointer type for heap allocation.
 ///
@@ -205,10 +196,10 @@ impl<T> Boxed for Box<T> {
 #[unstable(feature = "placement_in",
            reason = "placement box design is still being worked out.",
            issue = "27779")]
-impl<T> Placer<T> for ExchangeHeapSingleton {
+impl<T> Placer<T> for AbortAdapter<Heap> {
     type Place = IntermediateBox<T>;
 
-    fn make_place(self) -> IntermediateBox<T> {
+    fn make_place(self) -> Self::Place {
         make_place()
     }
 }

@@ -30,7 +30,7 @@ use allocator::*;
 ///
 /// This adapter bridges the gap, effectively allowing `Alloc<Err=!>` to be
 /// implemented by any allocator.
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct AbortAdapter<Alloc>(pub Alloc);
 
 unsafe impl<A: Alloc> Alloc for AbortAdapter<A> {
