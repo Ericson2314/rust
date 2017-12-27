@@ -100,12 +100,12 @@ pub const HEAP: AbortAdapter<Heap> = AbortAdapter(Heap);
 #[lang = "owned_box"]
 #[fundamental]
 #[stable(feature = "rust1", since = "1.0.0")]
-pub struct Box<T: ?Sized>(Unique<T>);
+pub struct Box<T: ?Sized, A: Alloc = AbortAdapter<Heap>>(Unique<T>, A);
 
 /// `IntermediateBox` represents uninitialized backing storage for `Box`.
 ///
-/// FIXME (pnkfelix): Ideally we would just reuse `Box<T>` instead of
-/// introducing a separate `IntermediateBox<T>`; but then you hit
+/// FIXME (pnkfelix): Ideally we would just reuse `Box<T, A>` instead of
+/// introducing a separate `IntermediateBox<T, A>`; but then you hit
 /// issues when you e.g. attempt to destructure an instance of `Box`,
 /// since it is a lang item and so it gets special handling by the
 /// compiler.  Easier just to make this parallel type for now.
@@ -124,52 +124,63 @@ pub struct Box<T: ?Sized>(Unique<T>);
            reason = "placement box design is still being worked out.",
            issue = "27779")]
 #[allow(missing_debug_implementations)]
-pub struct IntermediateBox<T: ?Sized> {
+pub struct IntermediateBox<T: ?Sized, A: Alloc = AbortAdapter<Heap>> {
     ptr: *mut u8,
     layout: Layout,
     marker: marker::PhantomData<*mut T>,
+    alloc: A,
 }
 
 #[unstable(feature = "placement_in",
            reason = "placement box design is still being worked out.",
            issue = "27779")]
-impl<T> Place<T> for IntermediateBox<T> {
+impl<T, A: Alloc> Place<T> for IntermediateBox<T, A> {
     fn pointer(&mut self) -> *mut T {
         self.ptr as *mut T
     }
 }
 
-unsafe fn finalize<T>(b: IntermediateBox<T>) -> Box<T> {
-    let p = b.ptr as *mut T;
+unsafe fn finalize<T, A: Alloc>(mut b: IntermediateBox<T, A>) -> Box<T, A> {
+    let ptr = b.ptr as *mut T;
+    let alloc = {
+        let mut a = mem::uninitialized();
+        mem::swap(&mut a, &mut b.alloc);
+        a
+    };
     mem::forget(b);
-    Box::from_raw(p)
+    Box::<T, A>::from_raw_in(ptr, alloc)
 }
 
-fn make_place<T>() -> IntermediateBox<T> {
+fn make_place<T, A: Alloc<Err=!> + Default>() -> IntermediateBox<T, A> {
+    let Ok(b) = make_place_alloc(Default::default());
+    b
+}
+
+#[unstable(feature = "allocator_api", issue = "32838")]
+fn make_place_alloc<T, A: Alloc>(mut alloc: A) -> Result<IntermediateBox<T, A>, A::Err> {
     let layout = Layout::new::<T>();
 
     let p = if layout.size() == 0 {
         mem::align_of::<T>() as *mut u8
     } else {
         unsafe {
-            Heap.alloc(layout.clone()).unwrap_or_else(|err| {
-                Heap.oom(err)
-            })
+            alloc.alloc(layout.clone())?
         }
     };
 
-    IntermediateBox {
+    Ok(IntermediateBox {
         ptr: p,
         layout,
         marker: marker::PhantomData,
-    }
+        alloc: alloc
+    })
 }
 
 #[unstable(feature = "placement_in",
            reason = "placement box design is still being worked out.",
            issue = "27779")]
-impl<T> BoxPlace<T> for IntermediateBox<T> {
-    fn make_place() -> IntermediateBox<T> {
+impl<T, A: Default + Alloc<Err=!>> BoxPlace<T> for IntermediateBox<T, A> {
+    fn make_place() -> IntermediateBox<T, A> {
         make_place()
     }
 }
@@ -177,18 +188,18 @@ impl<T> BoxPlace<T> for IntermediateBox<T> {
 #[unstable(feature = "placement_in",
            reason = "placement box design is still being worked out.",
            issue = "27779")]
-impl<T> InPlace<T> for IntermediateBox<T> {
-    type Owner = Box<T>;
-    unsafe fn finalize(self) -> Box<T> {
+impl<T, A: Alloc> InPlace<T> for IntermediateBox<T, A> {
+    type Owner = Box<T, A>;
+    unsafe fn finalize(self) -> Box<T, A> {
         finalize(self)
     }
 }
 
 #[unstable(feature = "placement_new_protocol", issue = "27779")]
-impl<T> Boxed for Box<T> {
+impl<T, A: Default + Alloc<Err=!>> Boxed for Box<T, A> {
     type Data = T;
-    type Place = IntermediateBox<T>;
-    unsafe fn finalize(b: IntermediateBox<T>) -> Box<T> {
+    type Place = IntermediateBox<T, A>;
+    unsafe fn finalize(b: IntermediateBox<T, A>) -> Box<T, A> {
         finalize(b)
     }
 }
@@ -197,21 +208,34 @@ impl<T> Boxed for Box<T> {
            reason = "placement box design is still being worked out.",
            issue = "27779")]
 impl<T> Placer<T> for AbortAdapter<Heap> {
-    type Place = IntermediateBox<T>;
+    type Place = IntermediateBox<T, AbortAdapter<Heap>>;
 
     fn make_place(self) -> Self::Place {
         make_place()
     }
 }
 
+// WTF coherence
+//
+//#[unstable(feature = "placement_in",
+//           reason = "placement box design is still being worked out.",
+//           issue = "27779")]
+//impl<T, A: Alloc<Err=!> + Default> Placer<T> for A {
+//    type Place = IntermediateBox<T, A>;
+//
+//    fn make_place(self) -> Self::Place {
+//        make_place()
+//    }
+//}
+
 #[unstable(feature = "placement_in",
            reason = "placement box design is still being worked out.",
            issue = "27779")]
-impl<T: ?Sized> Drop for IntermediateBox<T> {
+impl<T: ?Sized, A: Alloc> Drop for IntermediateBox<T, A> {
     fn drop(&mut self) {
         if self.layout.size() > 0 {
             unsafe {
-                Heap.dealloc(self.ptr, self.layout.clone())
+                self.alloc.dealloc(self.ptr, self.layout.clone())
             }
         }
     }
@@ -233,6 +257,30 @@ impl<T> Box<T> {
         box x
     }
 }
+
+impl<T, A: Alloc> Box<T, A> {
+    /// Allocates memory on the heap and then places `x` into it.
+    ///
+    /// This doesn't actually allocate if `T` is zero-sized.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let five = Box::new(5);
+    /// ```
+    #[stable(feature = "rust1", since = "1.0.0")]
+    #[inline(always)]
+    pub fn new_in(x: T, a: A) -> Result<Box<T, A>, A::Err> {
+        let mut place = make_place_alloc(a)?;
+        let raw_place = Place::pointer(&mut place);
+        // TODO: Make placement API support result.
+        Ok(unsafe {
+            ptr::write(raw_place, x);
+            InPlace::finalize(place)
+        })
+    }
+}
+
 
 impl<T: ?Sized> Box<T> {
     /// Constructs a box from a raw pointer.
@@ -260,7 +308,7 @@ impl<T: ?Sized> Box<T> {
     #[stable(feature = "box_raw", since = "1.4.0")]
     #[inline]
     pub unsafe fn from_raw(raw: *mut T) -> Self {
-        Box::from_unique(Unique::new_unchecked(raw))
+        Box::from_unique_alloc(Unique::new_unchecked(raw), Default::default())
     }
 
     /// Constructs a `Box` from a `Unique<T>` pointer.
@@ -291,7 +339,22 @@ impl<T: ?Sized> Box<T> {
                issue = "27730")]
     #[inline]
     pub unsafe fn from_unique(u: Unique<T>) -> Self {
-        Box(u)
+        Box::from_unique_alloc(u, Default::default())
+    }
+}
+
+#[unstable(feature = "allocator_api", issue = "32838")]
+impl<T: ?Sized, A: Alloc> Box<T, A> {
+    #[inline]
+    pub unsafe fn from_raw_in(raw: *mut T, a: A) -> Self {
+        Box::from_unique_alloc(Unique::new_unchecked(raw), a)
+    }
+
+    #[unstable(feature = "unique", reason = "needs an RFC to flesh out design",
+               issue = "27730")]
+    #[inline]
+    pub unsafe fn from_unique_alloc(u: Unique<T>, a: A) -> Self {
+        Box(u, a)
     }
 
     /// Consumes the `Box`, returning the wrapped raw pointer.
@@ -316,7 +379,7 @@ impl<T: ?Sized> Box<T> {
     /// ```
     #[stable(feature = "box_raw", since = "1.4.0")]
     #[inline]
-    pub fn into_raw(b: Box<T>) -> *mut T {
+    pub fn into_raw(b: Self) -> *mut T {
         Box::into_unique(b).as_ptr()
     }
 
@@ -352,10 +415,25 @@ impl<T: ?Sized> Box<T> {
     #[unstable(feature = "unique", reason = "needs an RFC to flesh out design",
                issue = "27730")]
     #[inline]
-    pub fn into_unique(b: Box<T>) -> Unique<T> {
+    pub fn into_unique(b: Self) -> Unique<T> {
         let unique = b.0;
         mem::forget(b);
         unique
+    }
+
+
+    #[unstable(feature = "unique", reason = "needs an RFC to flesh out design",
+               issue = "27730")]
+    #[inline]
+    pub fn into_both(mut b: Self) -> (Unique<T>, A) {
+        let unique = b.0;
+        let alloc = unsafe {
+            let mut a = mem::uninitialized();
+            mem::swap(&mut a, &mut b.1);
+            a
+        };
+        mem::forget(b);
+        (unique, alloc)
     }
 
     /// Consumes and leaks the `Box`, returning a mutable reference,
@@ -404,7 +482,7 @@ impl<T: ?Sized> Box<T> {
     #[unstable(feature = "box_leak", reason = "needs an FCP to stabilize",
                issue = "46179")]
     #[inline]
-    pub fn leak<'a>(b: Box<T>) -> &'a mut T
+    pub fn leak<'a>(b: Self) -> &'a mut T
     where
         T: 'a // Technically not needed, but kept to be explicit.
     {
@@ -412,25 +490,28 @@ impl<T: ?Sized> Box<T> {
     }
 }
 
+
 #[stable(feature = "rust1", since = "1.0.0")]
-unsafe impl<#[may_dangle] T: ?Sized> Drop for Box<T> {
+unsafe impl<#[may_dangle] T: ?Sized, A: Alloc> Drop for Box<T, A> {
     fn drop(&mut self) {
         // FIXME: Do nothing, drop is currently performed by compiler.
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: Default> Default for Box<T> {
-    /// Creates a `Box<T>`, with the `Default` value for T.
-    fn default() -> Box<T> {
-        box Default::default()
+impl<T: Default, A: Alloc<Err=!> + Default> Default for Box<T, A> {
+    /// Creates a `Box<T, A>`, with the `Default` value for T.
+    fn default() -> Box<T, A> {
+        let Ok(b) = Box::new_in(Default::default(), Default::default());
+        b
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T> Default for Box<[T]> {
-    fn default() -> Box<[T]> {
-        Box::<[T; 0]>::new([])
+impl<T, A: Alloc<Err=!> + Default> Default for Box<[T], A> {
+    fn default() -> Box<[T], A> {
+        let Ok(b) = Box::<[T; 0], A>::new_in([], Default::default());
+        b
     }
 }
 
@@ -442,7 +523,7 @@ impl Default for Box<str> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: Clone> Clone for Box<T> {
+impl<T: Clone, A: Alloc<Err=!> + Clone> Clone for Box<T, A> {
     /// Returns a new box with a `clone()` of this box's contents.
     ///
     /// # Examples
@@ -453,8 +534,9 @@ impl<T: Clone> Clone for Box<T> {
     /// ```
     #[rustfmt_skip]
     #[inline]
-    fn clone(&self) -> Box<T> {
-        box { (**self).clone() }
+    fn clone(&self) -> Self {
+        let Ok(b) = Box::new_in((**self).clone(), self.1.clone());
+        b
     }
     /// Copies `source`'s contents into `self` without creating a new allocation.
     ///
@@ -469,7 +551,7 @@ impl<T: Clone> Clone for Box<T> {
     /// assert_eq!(*y, 5);
     /// ```
     #[inline]
-    fn clone_from(&mut self, source: &Box<T>) {
+    fn clone_from(&mut self, source: &Self) {
         (**self).clone_from(&(**source));
     }
 }
@@ -487,59 +569,65 @@ impl Clone for Box<str> {
     }
 }
 
+/// Just the contents are compared, the allocator is ignored
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized + PartialEq> PartialEq for Box<T> {
+impl<T: ?Sized + PartialEq, A: Alloc> PartialEq for Box<T, A> {
     #[inline]
-    fn eq(&self, other: &Box<T>) -> bool {
+    fn eq(&self, other: &Self) -> bool {
         PartialEq::eq(&**self, &**other)
     }
     #[inline]
-    fn ne(&self, other: &Box<T>) -> bool {
+    fn ne(&self, other: &Self) -> bool {
         PartialEq::ne(&**self, &**other)
     }
 }
+/// Just the contents are compared, the allocator is ignored
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized + PartialOrd> PartialOrd for Box<T> {
+impl<T: ?Sized + PartialOrd, A: Alloc> PartialOrd for Box<T, A> {
     #[inline]
-    fn partial_cmp(&self, other: &Box<T>) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         PartialOrd::partial_cmp(&**self, &**other)
     }
     #[inline]
-    fn lt(&self, other: &Box<T>) -> bool {
+    fn lt(&self, other: &Self) -> bool {
         PartialOrd::lt(&**self, &**other)
     }
     #[inline]
-    fn le(&self, other: &Box<T>) -> bool {
+    fn le(&self, other: &Self) -> bool {
         PartialOrd::le(&**self, &**other)
     }
     #[inline]
-    fn ge(&self, other: &Box<T>) -> bool {
+    fn ge(&self, other: &Self) -> bool {
         PartialOrd::ge(&**self, &**other)
     }
     #[inline]
-    fn gt(&self, other: &Box<T>) -> bool {
+    fn gt(&self, other: &Self) -> bool {
         PartialOrd::gt(&**self, &**other)
     }
 }
+/// Just the contents are compared, the allocator is ignored
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized + Ord> Ord for Box<T> {
+impl<T: ?Sized + Ord, A: Alloc> Ord for Box<T, A> {
     #[inline]
-    fn cmp(&self, other: &Box<T>) -> Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         Ord::cmp(&**self, &**other)
     }
 }
+/// Just the contents are compared, the allocator is ignored
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized + Eq> Eq for Box<T> {}
+impl<T: ?Sized + Eq, A: Alloc> Eq for Box<T, A> {}
 
+/// Just the contents are compared, the allocator is ignored
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized + Hash> Hash for Box<T> {
+impl<T: ?Sized + Hash, A: Alloc> Hash for Box<T, A> {
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         (**self).hash(state);
     }
 }
 
+/// Just the contents are compared, the allocator is ignored
 #[stable(feature = "indirect_hasher_impl", since = "1.22.0")]
-impl<T: ?Sized + Hasher> Hasher for Box<T> {
+impl<T: ?Sized + Hasher, A: Alloc> Hasher for Box<T, A> {
     fn finish(&self) -> u64 {
         (**self).finish()
     }
@@ -585,9 +673,10 @@ impl<T: ?Sized + Hasher> Hasher for Box<T> {
 }
 
 #[stable(feature = "from_for_ptrs", since = "1.6.0")]
-impl<T> From<T> for Box<T> {
+impl<T, A: Alloc<Err=!> + Default> From<T> for Box<T, A> {
     fn from(t: T) -> Self {
-        Box::new(t)
+        let Ok(b) = Box::new_in(t, Default::default());
+        b
     }
 }
 
@@ -614,7 +703,7 @@ impl From<Box<str>> for Box<[u8]> {
     }
 }
 
-impl Box<Any> {
+impl<A: Alloc> Box<Any, A> {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     /// Attempt to downcast the box to a concrete type.
@@ -636,11 +725,11 @@ impl Box<Any> {
     ///     print_if_string(Box::new(0i8));
     /// }
     /// ```
-    pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any>> {
+    pub fn downcast<T: Any>(self) -> Result<Box<T, A>, Box<Any, A>> {
         if self.is::<T>() {
             unsafe {
-                let raw: *mut Any = Box::into_raw(self);
-                Ok(Box::from_raw(raw as *mut T))
+                let (u, a) = Box::into_both(self);
+                Ok(Box::from_raw_in(u.as_ptr() as *mut T, a))
             }
         } else {
             Err(self)
@@ -648,7 +737,7 @@ impl Box<Any> {
     }
 }
 
-impl Box<Any + Send> {
+impl<A: Alloc> Box<Any + Send, A> {
     #[inline]
     #[stable(feature = "rust1", since = "1.0.0")]
     /// Attempt to downcast the box to a concrete type.
@@ -670,30 +759,31 @@ impl Box<Any + Send> {
     ///     print_if_string(Box::new(0i8));
     /// }
     /// ```
-    pub fn downcast<T: Any>(self) -> Result<Box<T>, Box<Any + Send>> {
-        <Box<Any>>::downcast(self).map_err(|s| unsafe {
+    pub fn downcast<T: Any>(self) -> Result<Box<T, A>, Box<Any + Send, A>> {
+        <Box<Any, A>>::downcast(self).map_err(|s| unsafe {
+            let (u, a) = Box::into_both(s);
             // reapply the Send marker
-            Box::from_raw(Box::into_raw(s) as *mut (Any + Send))
+            Box::from_raw_in(u.as_ptr() as *mut (Any + Send), a)
         })
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: fmt::Display + ?Sized> fmt::Display for Box<T> {
+impl<T: fmt::Display + ?Sized, A: Alloc> fmt::Display for Box<T, A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Display::fmt(&**self, f)
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: fmt::Debug + ?Sized> fmt::Debug for Box<T> {
+impl<T: fmt::Debug + ?Sized, A: Alloc> fmt::Debug for Box<T, A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         fmt::Debug::fmt(&**self, f)
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized> fmt::Pointer for Box<T> {
+impl<T: ?Sized, A: Alloc> fmt::Pointer for Box<T, A> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // It's not possible to extract the inner Uniq directly from the Box,
         // instead we cast it to a *const which aliases the Unique
@@ -703,7 +793,7 @@ impl<T: ?Sized> fmt::Pointer for Box<T> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized> Deref for Box<T> {
+impl<T: ?Sized, A: Alloc> Deref for Box<T, A> {
     type Target = T;
 
     fn deref(&self) -> &T {
@@ -712,14 +802,14 @@ impl<T: ?Sized> Deref for Box<T> {
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<T: ?Sized> DerefMut for Box<T> {
+impl<T: ?Sized, A: Alloc> DerefMut for Box<T, A> {
     fn deref_mut(&mut self) -> &mut T {
         &mut **self
     }
 }
 
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<I: Iterator + ?Sized> Iterator for Box<I> {
+impl<I: Iterator + ?Sized, A: Alloc> Iterator for Box<I, A> {
     type Item = I::Item;
     fn next(&mut self) -> Option<I::Item> {
         (**self).next()
@@ -732,13 +822,13 @@ impl<I: Iterator + ?Sized> Iterator for Box<I> {
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<I: DoubleEndedIterator + ?Sized> DoubleEndedIterator for Box<I> {
+impl<I: DoubleEndedIterator + ?Sized, A: Alloc> DoubleEndedIterator for Box<I, A> {
     fn next_back(&mut self) -> Option<I::Item> {
         (**self).next_back()
     }
 }
 #[stable(feature = "rust1", since = "1.0.0")]
-impl<I: ExactSizeIterator + ?Sized> ExactSizeIterator for Box<I> {
+impl<I: ExactSizeIterator + ?Sized, A: Alloc> ExactSizeIterator for Box<I, A> {
     fn len(&self) -> usize {
         (**self).len()
     }
@@ -748,7 +838,7 @@ impl<I: ExactSizeIterator + ?Sized> ExactSizeIterator for Box<I> {
 }
 
 #[unstable(feature = "fused", issue = "35602")]
-impl<I: FusedIterator + ?Sized> FusedIterator for Box<I> {}
+impl<I: FusedIterator + ?Sized, A: Alloc> FusedIterator for Box<I, A> {}
 
 
 /// `FnBox` is a version of the `FnOnce` intended for use with boxed
@@ -791,10 +881,10 @@ impl<I: FusedIterator + ?Sized> FusedIterator for Box<I> {}
 #[rustc_paren_sugar]
 #[unstable(feature = "fnbox",
            reason = "will be deprecated if and when `Box<FnOnce>` becomes usable", issue = "28796")]
-pub trait FnBox<A> {
+pub trait FnBox<As, A: Alloc = AbortAdapter<Heap>> {
     type Output;
 
-    fn call_box(self: Box<Self>, args: A) -> Self::Output;
+    fn call_box(self: Box<Self, A>, args: As) -> Self::Output;
 }
 
 #[unstable(feature = "fnbox",
@@ -830,7 +920,8 @@ impl<'a, A, R> FnOnce<A> for Box<FnBox<A, Output = R> + Send + 'a> {
 }
 
 #[unstable(feature = "coerce_unsized", issue = "27732")]
-impl<T: ?Sized + Unsize<U>, U: ?Sized> CoerceUnsized<Box<U>> for Box<T> {}
+impl<T: ?Sized + Unsize<U>, U: ?Sized, A: Alloc>
+    CoerceUnsized<Box<U, A>> for Box<T, A> {}
 
 #[stable(feature = "box_slice_clone", since = "1.3.0")]
 impl<T: Clone> Clone for Box<[T]> {
@@ -884,35 +975,35 @@ impl<T: Clone> Clone for Box<[T]> {
 }
 
 #[stable(feature = "box_borrow", since = "1.1.0")]
-impl<T: ?Sized> borrow::Borrow<T> for Box<T> {
+impl<T: ?Sized, A: Alloc> borrow::Borrow<T> for Box<T, A> {
     fn borrow(&self) -> &T {
         &**self
     }
 }
 
 #[stable(feature = "box_borrow", since = "1.1.0")]
-impl<T: ?Sized> borrow::BorrowMut<T> for Box<T> {
+impl<T: ?Sized, A: Alloc> borrow::BorrowMut<T> for Box<T, A> {
     fn borrow_mut(&mut self) -> &mut T {
         &mut **self
     }
 }
 
 #[stable(since = "1.5.0", feature = "smart_ptr_as_ref")]
-impl<T: ?Sized> AsRef<T> for Box<T> {
+impl<T: ?Sized, A: Alloc> AsRef<T> for Box<T, A> {
     fn as_ref(&self) -> &T {
         &**self
     }
 }
 
 #[stable(since = "1.5.0", feature = "smart_ptr_as_ref")]
-impl<T: ?Sized> AsMut<T> for Box<T> {
+impl<T: ?Sized, A: Alloc> AsMut<T> for Box<T, A> {
     fn as_mut(&mut self) -> &mut T {
         &mut **self
     }
 }
 
 #[unstable(feature = "generator_trait", issue = "43122")]
-impl<T> Generator for Box<T>
+impl<T, A: Alloc> Generator for Box<T, A>
     where T: Generator + ?Sized
 {
     type Yield = T::Yield;
