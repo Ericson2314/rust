@@ -148,6 +148,7 @@ mod macros;
 // Allocator trait and helper struct definitions
 
 pub mod allocator;
+pub mod abort_adapter;
 
 // Heaps provided for low-level allocation strategies
 
