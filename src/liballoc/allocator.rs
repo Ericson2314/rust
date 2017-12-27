@@ -327,10 +327,6 @@ pub enum AllocErr {
 
 impl AllocErr {
     #[inline]
-    pub fn invalid_input(details: &'static str) -> Self {
-        AllocErr::Unsupported { details: details }
-    }
-    #[inline]
     pub fn is_memory_exhausted(&self) -> bool {
         if let AllocErr::Exhausted { .. } = *self { true } else { false }
     }
@@ -344,6 +340,25 @@ impl AllocErr {
             AllocErr::Exhausted { .. } => "allocator memory exhausted",
             AllocErr::Unsupported { .. } => "unsupported allocator request",
         }
+    }
+}
+
+pub trait InvalidInputErr {
+    #[inline]
+    fn invalid_input(details: &'static str) -> Self;
+}
+
+impl InvalidInputErr for AllocErr {
+    #[inline]
+    fn invalid_input(details: &'static str) -> Self {
+        AllocErr::Unsupported { details: details }
+    }
+}
+
+impl InvalidInputErr for ! {
+    #[inline]
+    fn invalid_input(details: &'static str) -> Self {
+        panic!(details)
     }
 }
 
@@ -461,6 +476,11 @@ impl fmt::Display for CannotReallocInPlace {
 /// how to safely implement one in the future as well.
 pub unsafe trait Alloc {
 
+    /// The type of any errors thrown by the allocator, customarily
+    /// either `AllocErr`, for when error recovery is allowed, or `!`
+    /// to signify that all errors will result in .
+    type Err: InvalidInputErr;
+
     // (Note: existing allocators have unspecified but well-defined
     // behavior in response to a zero size allocation request ;
     // e.g. in C, `malloc` of 0 will either return a null pointer or a
@@ -504,7 +524,7 @@ pub unsafe trait Alloc {
     /// Clients wishing to abort computation in response to an
     /// allocation error are encouraged to call the allocator's `oom`
     /// method, rather than directly invoking `panic!` or similar.
-    unsafe fn alloc(&mut self, layout: Layout) -> Result<*mut u8, AllocErr>;
+    unsafe fn alloc(&mut self, layout: Layout) -> Result<*mut u8, Self::Err>;
 
     /// Deallocate the memory referenced by `ptr`.
     ///
@@ -549,7 +569,7 @@ pub unsafe trait Alloc {
     /// instead they should return an appropriate error from the
     /// invoked method, and let the client decide whether to invoke
     /// this `oom` method in response.
-    fn oom(&mut self, _: AllocErr) -> ! {
+    fn oom(&mut self, _: Self::Err) -> ! {
         unsafe { ::core::intrinsics::abort() }
     }
 
@@ -656,7 +676,7 @@ pub unsafe trait Alloc {
     unsafe fn realloc(&mut self,
                       ptr: *mut u8,
                       layout: Layout,
-                      new_layout: Layout) -> Result<*mut u8, AllocErr> {
+                      new_layout: Layout) -> Result<*mut u8, Self::Err> {
         let new_size = new_layout.size();
         let old_size = layout.size();
         let aligns_match = layout.align == new_layout.align;
@@ -696,7 +716,7 @@ pub unsafe trait Alloc {
     /// Clients wishing to abort computation in response to an
     /// allocation error are encouraged to call the allocator's `oom`
     /// method, rather than directly invoking `panic!` or similar.
-    unsafe fn alloc_zeroed(&mut self, layout: Layout) -> Result<*mut u8, AllocErr> {
+    unsafe fn alloc_zeroed(&mut self, layout: Layout) -> Result<*mut u8, Self::Err> {
         let size = layout.size();
         let p = self.alloc(layout);
         if let Ok(p) = p {
@@ -722,7 +742,7 @@ pub unsafe trait Alloc {
     /// Clients wishing to abort computation in response to an
     /// allocation error are encouraged to call the allocator's `oom`
     /// method, rather than directly invoking `panic!` or similar.
-    unsafe fn alloc_excess(&mut self, layout: Layout) -> Result<Excess, AllocErr> {
+    unsafe fn alloc_excess(&mut self, layout: Layout) -> Result<Excess, Self::Err> {
         let usable_size = self.usable_size(&layout);
         self.alloc(layout).map(|p| Excess(p, usable_size.1))
     }
@@ -747,7 +767,7 @@ pub unsafe trait Alloc {
     unsafe fn realloc_excess(&mut self,
                              ptr: *mut u8,
                              layout: Layout,
-                             new_layout: Layout) -> Result<Excess, AllocErr> {
+                             new_layout: Layout) -> Result<Excess, Self::Err> {
         let usable_size = self.usable_size(&new_layout);
         self.realloc(ptr, layout, new_layout)
             .map(|p| Excess(p, usable_size.1))
@@ -895,14 +915,14 @@ pub unsafe trait Alloc {
     /// Clients wishing to abort computation in response to an
     /// allocation error are encouraged to call the allocator's `oom`
     /// method, rather than directly invoking `panic!` or similar.
-    fn alloc_one<T>(&mut self) -> Result<Unique<T>, AllocErr>
+    fn alloc_one<T>(&mut self) -> Result<Unique<T>, Self::Err>
         where Self: Sized
     {
         let k = Layout::new::<T>();
         if k.size() > 0 {
             unsafe { self.alloc(k).map(|p| Unique::new_unchecked(p as *mut T)) }
         } else {
-            Err(AllocErr::invalid_input("zero-sized type invalid for alloc_one"))
+            Err(InvalidInputErr::invalid_input("zero-sized type invalid for alloc_one"))
         }
     }
 
@@ -963,7 +983,7 @@ pub unsafe trait Alloc {
     /// Clients wishing to abort computation in response to an
     /// allocation error are encouraged to call the allocator's `oom`
     /// method, rather than directly invoking `panic!` or similar.
-    fn alloc_array<T>(&mut self, n: usize) -> Result<Unique<T>, AllocErr>
+    fn alloc_array<T>(&mut self, n: usize) -> Result<Unique<T>, Self::Err>
         where Self: Sized
     {
         match Layout::array::<T>(n) {
@@ -975,7 +995,7 @@ pub unsafe trait Alloc {
                         })
                 }
             }
-            _ => Err(AllocErr::invalid_input("invalid layout for alloc_array")),
+            _ => Err(InvalidInputErr::invalid_input("invalid layout for alloc_array")),
         }
     }
 
@@ -1014,7 +1034,7 @@ pub unsafe trait Alloc {
     unsafe fn realloc_array<T>(&mut self,
                                ptr: Unique<T>,
                                n_old: usize,
-                               n_new: usize) -> Result<Unique<T>, AllocErr>
+                               n_new: usize) -> Result<Unique<T>, Self::Err>
         where Self: Sized
     {
         match (Layout::array::<T>(n_old), Layout::array::<T>(n_new), ptr.as_ptr()) {
@@ -1023,7 +1043,7 @@ pub unsafe trait Alloc {
                     .map(|p|Unique::new_unchecked(p as *mut T))
             }
             _ => {
-                Err(AllocErr::invalid_input("invalid layout for realloc_array"))
+                Err(InvalidInputErr::invalid_input("invalid layout for realloc_array"))
             }
         }
     }
@@ -1048,7 +1068,7 @@ pub unsafe trait Alloc {
     /// constraints.
     ///
     /// Always returns `Err` on arithmetic overflow.
-    unsafe fn dealloc_array<T>(&mut self, ptr: Unique<T>, n: usize) -> Result<(), AllocErr>
+    unsafe fn dealloc_array<T>(&mut self, ptr: Unique<T>, n: usize) -> Result<(), Self::Err>
         where Self: Sized
     {
         let raw_ptr = ptr.as_ptr() as *mut u8;
@@ -1057,7 +1077,7 @@ pub unsafe trait Alloc {
                 Ok(self.dealloc(raw_ptr, k.clone()))
             }
             _ => {
-                Err(AllocErr::invalid_input("invalid layout for dealloc_array"))
+                Err(InvalidInputErr::invalid_input("invalid layout for dealloc_array"))
             }
         }
     }

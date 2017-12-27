@@ -79,6 +79,8 @@ extern "Rust" {
 pub struct Heap;
 
 unsafe impl Alloc for Heap {
+    type Err = AllocErr;
+
     #[inline]
     unsafe fn alloc(&mut self, layout: Layout) -> Result<*mut u8, AllocErr> {
         let mut err = ManuallyDrop::new(mem::uninitialized::<AllocErr>());
