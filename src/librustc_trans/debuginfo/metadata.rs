@@ -558,12 +558,6 @@ pub fn type_metadata<'a, 'tcx>(cx: &CrateContext<'a, 'tcx>,
                 Err(metadata) => return metadata,
             }
         }
-        ty::TyAdt(def, _) if def.is_box() => {
-            match ptr_metadata(t.boxed_ty()) {
-                Ok(res) => res,
-                Err(metadata) => return metadata,
-            }
-        }
         ty::TyFnDef(..) | ty::TyFnPtr(_) => {
             let fn_metadata = subroutine_type_metadata(cx,
                                                        unique_type_id,
