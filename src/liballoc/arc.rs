@@ -31,8 +31,8 @@ use core::hash::{Hash, Hasher};
 use core::{isize, usize};
 use core::convert::From;
 
-use heap::{Heap, Alloc, Layout, box_free};
-use boxed::Box;
+use heap::{Heap, Alloc, Layout};
+use boxed::{Box, box_free};
 use string::String;
 use vec::Vec;
 
@@ -581,7 +581,7 @@ impl<T: ?Sized> Arc<T> {
                 value_size);
 
             // Free the allocation without dropping its contents
-            box_free(box_unique);
+            box_free(box_unique, ::boxed::HEAP);
 
             Arc { ptr: Shared::new_unchecked(ptr), phantom: PhantomData }
         }

@@ -102,6 +102,35 @@ pub const HEAP: AbortAdapter<Heap> = AbortAdapter(Heap);
 #[stable(feature = "rust1", since = "1.0.0")]
 pub struct Box<T: ?Sized, A: Alloc = AbortAdapter<Heap>>(Unique<T>, A);
 
+#[cfg(stage0)]
+#[lang = "box_free"]
+#[inline]
+pub(crate) unsafe fn old_box_free<T: ?Sized>(ptr: *mut T) {
+    box_free(Unique::new_unchecked(ptr), HEAP)
+}
+
+#[cfg_attr(not(any(test, stage0)), lang = "box_free")]
+#[inline]
+// Invoked by the compiler to deallocate the storage of `Box<T>`,
+// after the owned `T` value on the heap has already been dropped.
+// NB: the generics should be the same as for `Box`, and the
+// argument types should match the fields in `struct Box`.
+pub(crate) unsafe fn box_free<T: ?Sized, A: Alloc>(ptr: Unique<T>, mut a: A) {
+    box_free_worker(ptr, &mut a)
+}
+
+#[inline]
+pub(crate) unsafe fn box_free_worker<T: ?Sized, A: Alloc>(ptr: Unique<T>, a: &mut A) {
+    let ptr = ptr.as_ptr();
+    let size = mem::size_of_val(&*ptr);
+    let align = mem::align_of_val(&*ptr);
+    // We do not allocate for Box<T> when T is ZST, so deallocation is also not necessary.
+    if size != 0 {
+        let layout = Layout::from_size_align_unchecked(size, align);
+        a.dealloc(ptr as *mut u8, layout);
+    }
+}
+
 /// `IntermediateBox` represents uninitialized backing storage for `Box`.
 ///
 /// FIXME (pnkfelix): Ideally we would just reuse `Box<T, A>` instead of

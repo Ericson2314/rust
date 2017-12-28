@@ -239,8 +239,6 @@
 
 #![stable(feature = "rust1", since = "1.0.0")]
 
-#[cfg(not(test))]
-use boxed::Box;
 #[cfg(test)]
 use std::boxed::Box;
 
@@ -259,7 +257,8 @@ use core::ops::CoerceUnsized;
 use core::ptr::{self, Shared};
 use core::convert::From;
 
-use heap::{Heap, Alloc, Layout, box_free};
+use boxed::{Box, box_free};
+use heap::{Heap, Alloc, Layout};
 use string::String;
 use vec::Vec;
 
@@ -694,7 +693,7 @@ impl<T: ?Sized> Rc<T> {
                 value_size);
 
             // Free the allocation without dropping its contents
-            box_free(box_unique);
+            box_free(box_unique, ::boxed::HEAP);
 
             Rc { ptr: Shared::new_unchecked(ptr), phantom: PhantomData }
         }

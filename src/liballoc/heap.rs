@@ -15,9 +15,7 @@
                       tracing garbage collector",
             issue = "32838")]
 
-use core::intrinsics::{min_align_of_val, size_of_val};
 use core::mem::{self, ManuallyDrop};
-use core::ptr::Unique;
 use core::usize;
 
 pub use allocator::*;
@@ -252,30 +250,6 @@ unsafe fn exchange_malloc(size: usize, align: usize) -> *mut u8 {
         Heap.alloc(layout).unwrap_or_else(|err| {
             Heap.oom(err)
         })
-    }
-}
-
-#[cfg(stage0)]
-#[lang = "box_free"]
-#[inline]
-pub(crate) unsafe fn old_box_free<T: ?Sized>(ptr: *mut T) {
-    box_free(Unique::new_unchecked(ptr))
-}
-
-#[cfg_attr(not(any(test, stage0)), lang = "box_free")]
-#[inline]
-// Invoked by the compiler to deallocate the storage of `Box<T>`,
-// after the owned `T` value on the heap has already been dropped.
-// NB: the generics should be the same as for `Box`, and the
-// argument types should match the fields in `struct Box`.
-pub(crate) unsafe fn box_free<T: ?Sized>(ptr: Unique<T>) {
-    let ptr = ptr.as_ptr();
-    let size = size_of_val(&*ptr);
-    let align = min_align_of_val(&*ptr);
-    // We do not allocate for Box<T> when T is ZST, so deallocation is also not necessary.
-    if size != 0 {
-        let layout = Layout::from_size_align_unchecked(size, align);
-        Heap.dealloc(ptr as *mut u8, layout);
     }
 }
 
