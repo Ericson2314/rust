@@ -461,7 +461,7 @@ impl<T> Vec<T> {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn reserve(&mut self, additional: usize) {
-        self.buf.reserve(self.len, additional);
+        let Ok(()) = self.buf.reserve(self.len, additional);
     }
 
     /// Reserves the minimum capacity for exactly `additional` more elements to
@@ -486,7 +486,7 @@ impl<T> Vec<T> {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn reserve_exact(&mut self, additional: usize) {
-        self.buf.reserve_exact(self.len, additional);
+        let Ok(()) = self.buf.reserve_exact(self.len, additional);
     }
 
     /// Shrinks the capacity of the vector as much as possible.
@@ -505,7 +505,7 @@ impl<T> Vec<T> {
     /// ```
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn shrink_to_fit(&mut self) {
-        self.buf.shrink_to_fit(self.len);
+        let Ok(()) = self.buf.shrink_to_fit(self.len);
     }
 
     /// Converts the vector into [`Box<[T]>`][owned slice].
@@ -733,7 +733,7 @@ impl<T> Vec<T> {
 
         // space for the new element
         if len == self.buf.cap() {
-            self.buf.double();
+            let Ok(()) = self.buf.double();
         }
 
         unsafe {
@@ -968,7 +968,7 @@ impl<T> Vec<T> {
         // This will panic or abort if we would allocate > isize::MAX bytes
         // or if the length increment would overflow for zero-sized types.
         if self.len == self.buf.cap() {
-            self.buf.double();
+            let Ok(()) = self.buf.double();
         }
         unsafe {
             let end = self.as_mut_ptr().offset(self.len as isize);
@@ -2535,7 +2535,7 @@ impl<'a, T> Placer<T> for PlaceBack<'a, T> {
         // This will panic or abort if we would allocate > isize::MAX bytes
         // or if the length increment would overflow for zero-sized types.
         if self.vec.len == self.vec.buf.cap() {
-            self.vec.buf.double();
+            let Ok(()) = self.vec.buf.double();
         }
         self
     }
@@ -2674,7 +2674,7 @@ impl<'a, T> Drain<'a, T> {
     unsafe fn move_tail(&mut self, extra_capacity: usize) {
         let vec = self.vec.as_mut();
         let used_capacity = self.tail_start + self.tail_len;
-        vec.buf.reserve(used_capacity, extra_capacity);
+        let Ok(()) = vec.buf.reserve(used_capacity, extra_capacity);
 
         let new_tail_start = self.tail_start + extra_capacity;
         let src = vec.as_ptr().offset(self.tail_start as isize);
