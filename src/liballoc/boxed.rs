@@ -180,39 +180,41 @@ unsafe fn finalize<T, A: Alloc>(mut b: IntermediateBox<T, A>) -> Box<T, A> {
     Box::<T, A>::from_raw_in(ptr, alloc)
 }
 
-fn make_place<T, A: Alloc<Err=!> + Default>() -> IntermediateBox<T, A> {
-    let Ok(b) = make_place_alloc(Default::default());
-    b
-}
-
-#[unstable(feature = "allocator_api", issue = "32838")]
-fn make_place_alloc<T, A: Alloc>(mut alloc: A) -> Result<IntermediateBox<T, A>, A::Err> {
-    let layout = Layout::new::<T>();
-
-    let p = if layout.size() == 0 {
-        mem::align_of::<T>() as *mut u8
-    } else {
-        unsafe {
-            alloc.alloc(layout.clone())?
-        }
-    };
-
-    Ok(IntermediateBox {
-        ptr: p,
-        layout,
-        marker: marker::PhantomData,
-        alloc: alloc
-    })
-}
-
 #[unstable(feature = "placement_in",
            reason = "placement box design is still being worked out.",
            issue = "27779")]
 impl<T, A: Default + Alloc<Err=!>> BoxPlace<T> for IntermediateBox<T, A> {
     fn make_place() -> IntermediateBox<T, A> {
-        make_place()
+        let Ok(b) = Self::make_place_in(Default::default());
+        b
     }
 }
+
+// TODO(@Ericson2314): Make Trait
+#[unstable(feature = "placement_in",
+           reason = "placement box design is still being worked out.",
+           issue = "27779")]
+impl<T, A: Alloc> IntermediateBox<T, A> {
+    pub fn make_place_in(mut alloc: A) -> Result<IntermediateBox<T, A>, A::Err> {
+        let layout = Layout::new::<T>();
+
+        let p = if layout.size() == 0 {
+            mem::align_of::<T>() as *mut u8
+        } else {
+            unsafe {
+                alloc.alloc(layout.clone())?
+            }
+        };
+
+        Ok(IntermediateBox {
+            ptr: p,
+            layout,
+            marker: marker::PhantomData,
+            alloc: alloc
+        })
+    }
+}
+
 
 #[unstable(feature = "placement_in",
            reason = "placement box design is still being worked out.",
@@ -240,7 +242,7 @@ impl<T> Placer<T> for AbortAdapter<Heap> {
     type Place = IntermediateBox<T, AbortAdapter<Heap>>;
 
     fn make_place(self) -> Self::Place {
-        make_place()
+        IntermediateBox::make_place()
     }
 }
 
@@ -300,7 +302,7 @@ impl<T, A: Alloc> Box<T, A> {
     #[stable(feature = "rust1", since = "1.0.0")]
     #[inline(always)]
     pub fn new_in(x: T, a: A) -> Result<Box<T, A>, A::Err> {
-        let mut place = make_place_alloc(a)?;
+        let mut place = IntermediateBox::make_place_in(a)?;
         let raw_place = Place::pointer(&mut place);
         // TODO: Make placement API support result.
         Ok(unsafe {
