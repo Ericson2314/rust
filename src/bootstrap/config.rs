@@ -345,6 +345,7 @@ struct TomlTarget {
     musl_root: Option<String>,
     wasi_root: Option<String>,
     qemu_rootfs: Option<String>,
+    no_std: Option<bool>,
 }
 
 impl Config {
@@ -603,6 +604,8 @@ impl Config {
                 target.musl_root = cfg.musl_root.clone().map(PathBuf::from);
                 target.wasi_root = cfg.wasi_root.clone().map(PathBuf::from);
                 target.qemu_rootfs = cfg.qemu_rootfs.clone().map(PathBuf::from);
+                target.no_std
+                    = cfg.no_std.unwrap_or(triple.contains("-none-") || triple.contains("nvptx"));
 
                 config.target_config.insert(INTERNER.intern_string(triple.clone()), target);
             }
