@@ -32,7 +32,11 @@ path = "benches/vec_deque_append.rs"
 harness = false
 
 [features]
+default = ["global-oom-handling"]
+
 compiler-builtins-mem = ['compiler_builtins/mem']
 compiler-builtins-c = ["compiler_builtins/c"]
 compiler-builtins-no-asm = ["compiler_builtins/no-asm"]
 compiler-builtins-mangled-names = ["compiler_builtins/mangled-names"]
+
+global-oom-handling = []

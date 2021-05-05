@@ -308,7 +308,7 @@ unsafe impl Allocator for Global {
 
 /// The allocator for unique pointers.
 // This function must not unwind. If it does, MIR codegen will fail.
-#[cfg(all(not(no_global_oom_handling), not(test)))]
+#[cfg(all(feature = "global-oom-handling", not(test)))]
 #[lang = "exchange_malloc"]
 #[inline]
 unsafe fn exchange_malloc(size: usize, align: usize) -> *mut u8 {
@@ -337,7 +337,7 @@ pub(crate) unsafe fn box_free<T: ?Sized, A: Allocator>(ptr: Unique<T>, alloc: A)
 
 // # Allocation error handler
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 extern "Rust" {
     // This is the magic symbol to call the global alloc error handler.  rustc generates
     // it to call `__rg_oom` if there is a `#[alloc_error_handler]`, or to call the
@@ -359,7 +359,7 @@ extern "Rust" {
 /// [`set_alloc_error_hook`]: ../../std/alloc/fn.set_alloc_error_hook.html
 /// [`take_alloc_error_hook`]: ../../std/alloc/fn.take_alloc_error_hook.html
 #[stable(feature = "global_alloc", since = "1.28.0")]
-#[cfg(all(not(no_global_oom_handling), not(test)))]
+#[cfg(all(feature = "global-oom-handling", not(test)))]
 #[rustc_allocator_nounwind]
 #[cold]
 pub fn handle_alloc_error(layout: Layout) -> ! {
@@ -369,10 +369,10 @@ pub fn handle_alloc_error(layout: Layout) -> ! {
 }
 
 // For alloc test `std::alloc::handle_alloc_error` can be used directly.
-#[cfg(all(not(no_global_oom_handling), test))]
+#[cfg(all(feature = "global-oom-handling", test))]
 pub use std::alloc::handle_alloc_error;
 
-#[cfg(all(not(no_global_oom_handling), not(any(target_os = "hermit", test))))]
+#[cfg(all(feature = "global-oom-handling", not(any(target_os = "hermit", test))))]
 #[doc(hidden)]
 #[allow(unused_attributes)]
 #[unstable(feature = "alloc_internals", issue = "none")]

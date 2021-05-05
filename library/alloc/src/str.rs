@@ -74,7 +74,7 @@ pub use core::str::{RSplitTerminator, SplitTerminator};
 
 /// Note: `str` in `Concat<str>` is not meaningful here.
 /// This type parameter of the trait only exists to enable another impl.
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[unstable(feature = "slice_concat_ext", issue = "27747")]
 impl<S: Borrow<str>> Concat<str> for [S] {
     type Output = String;
@@ -84,7 +84,7 @@ impl<S: Borrow<str>> Concat<str> for [S] {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[unstable(feature = "slice_concat_ext", issue = "27747")]
 impl<S: Borrow<str>> Join<&str> for [S] {
     type Output = String;
@@ -94,7 +94,7 @@ impl<S: Borrow<str>> Join<&str> for [S] {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 macro_rules! specialize_for_lengths {
     ($separator:expr, $target:expr, $iter:expr; $($num:expr),*) => {{
         let mut target = $target;
@@ -125,7 +125,7 @@ macro_rules! specialize_for_lengths {
     }}
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 macro_rules! copy_slice_and_advance {
     ($target:expr, $bytes:expr) => {
         let len = $bytes.len();
@@ -143,7 +143,7 @@ macro_rules! copy_slice_and_advance {
 // the bounds for String-join are S: Borrow<str> and for Vec-join Borrow<[T]>
 // [T] and str both impl AsRef<[T]> for some T
 // => s.borrow().as_ref() and we always have slices
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 fn join_generic_copy<B, T, S>(slice: &[S], sep: &[T]) -> Vec<T>
 where
     T: Copy,
@@ -210,7 +210,7 @@ impl BorrowMut<str> for String {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl ToOwned for str {
     type Owned = String;
@@ -270,7 +270,7 @@ impl str {
     /// let s = "this is old";
     /// assert_eq!(s, s.replace("cookie monster", "little lamb"));
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[must_use = "this returns the replaced string as a new allocation, \
                   without modifying the original"]
     #[stable(feature = "rust1", since = "1.0.0")]
@@ -310,7 +310,7 @@ impl str {
     /// let s = "this is old";
     /// assert_eq!(s, s.replacen("cookie monster", "little lamb", 10));
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[must_use = "this returns the replaced string as a new allocation, \
                   without modifying the original"]
     #[stable(feature = "str_replacen", since = "1.16.0")]
@@ -366,7 +366,7 @@ impl str {
     ///
     /// assert_eq!(new_year, new_year.to_lowercase());
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[stable(feature = "unicode_case_mapping", since = "1.2.0")]
     pub fn to_lowercase(&self) -> String {
         let mut s = String::with_capacity(self.len());
@@ -446,7 +446,7 @@ impl str {
     ///
     /// assert_eq!("TSCHÜSS", s.to_uppercase());
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[stable(feature = "unicode_case_mapping", since = "1.2.0")]
     pub fn to_uppercase(&self) -> String {
         let mut s = String::with_capacity(self.len());
@@ -506,7 +506,7 @@ impl str {
     /// // this will panic at runtime
     /// "0123456789abcdef".repeat(usize::MAX);
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[stable(feature = "repeat_str", since = "1.16.0")]
     pub fn repeat(&self, n: usize) -> String {
         unsafe { String::from_utf8_unchecked(self.as_bytes().repeat(n)) }
@@ -533,7 +533,7 @@ impl str {
     ///
     /// [`make_ascii_uppercase`]: str::make_ascii_uppercase
     /// [`to_uppercase`]: #method.to_uppercase
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[stable(feature = "ascii_methods_on_intrinsics", since = "1.23.0")]
     #[inline]
     pub fn to_ascii_uppercase(&self) -> String {
@@ -564,7 +564,7 @@ impl str {
     ///
     /// [`make_ascii_lowercase`]: str::make_ascii_lowercase
     /// [`to_lowercase`]: #method.to_lowercase
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[stable(feature = "ascii_methods_on_intrinsics", since = "1.23.0")]
     #[inline]
     pub fn to_ascii_lowercase(&self) -> String {

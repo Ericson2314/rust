@@ -139,7 +139,7 @@ use core::convert::{From, TryFrom};
 use core::fmt;
 use core::future::Future;
 use core::hash::{Hash, Hasher};
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 use core::iter::FromIterator;
 use core::iter::{FusedIterator, Iterator};
 use core::marker::{Unpin, Unsize};
@@ -152,16 +152,16 @@ use core::ptr::{self, Unique};
 use core::stream::Stream;
 use core::task::{Context, Poll};
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 use crate::alloc::{handle_alloc_error, WriteCloneIntoRaw};
 use crate::alloc::{AllocError, Allocator, Global, Layout};
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 use crate::borrow::Cow;
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 use crate::raw_vec::RawVec;
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 use crate::str::from_boxed_utf8_unchecked;
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 use crate::vec::Vec;
 
 /// A pointer type for heap allocation.
@@ -185,7 +185,7 @@ impl<T> Box<T> {
     /// ```
     /// let five = Box::new(5);
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[inline(always)]
     #[stable(feature = "rust1", since = "1.0.0")]
     pub fn new(x: T) -> Self {
@@ -210,7 +210,7 @@ impl<T> Box<T> {
     ///
     /// assert_eq!(*five, 5)
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[unstable(feature = "new_uninit", issue = "63291")]
     #[inline]
     pub fn new_uninit() -> Box<mem::MaybeUninit<T>> {
@@ -235,7 +235,7 @@ impl<T> Box<T> {
     /// ```
     ///
     /// [zeroed]: mem::MaybeUninit::zeroed
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[inline]
     #[unstable(feature = "new_uninit", issue = "63291")]
     pub fn new_zeroed() -> Box<mem::MaybeUninit<T>> {
@@ -244,7 +244,7 @@ impl<T> Box<T> {
 
     /// Constructs a new `Pin<Box<T>>`. If `T` does not implement `Unpin`, then
     /// `x` will be pinned in memory and unable to be moved.
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[stable(feature = "pin", since = "1.33.0")]
     #[inline(always)]
     pub fn pin(x: T) -> Pin<Box<T>> {
@@ -338,7 +338,7 @@ impl<T, A: Allocator> Box<T, A> {
     ///
     /// let five = Box::new_in(5, System);
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[unstable(feature = "allocator_api", issue = "32838")]
     #[inline]
     pub fn new_in(x: T, alloc: A) -> Self {
@@ -395,7 +395,7 @@ impl<T, A: Allocator> Box<T, A> {
     /// assert_eq!(*five, 5)
     /// ```
     #[unstable(feature = "allocator_api", issue = "32838")]
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     // #[unstable(feature = "new_uninit", issue = "63291")]
     pub fn new_uninit_in(alloc: A) -> Box<mem::MaybeUninit<T>, A> {
         let layout = Layout::new::<mem::MaybeUninit<T>>();
@@ -458,7 +458,7 @@ impl<T, A: Allocator> Box<T, A> {
     ///
     /// [zeroed]: mem::MaybeUninit::zeroed
     #[unstable(feature = "allocator_api", issue = "32838")]
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     // #[unstable(feature = "new_uninit", issue = "63291")]
     pub fn new_zeroed_in(alloc: A) -> Box<mem::MaybeUninit<T>, A> {
         let layout = Layout::new::<mem::MaybeUninit<T>>();
@@ -502,7 +502,7 @@ impl<T, A: Allocator> Box<T, A> {
 
     /// Constructs a new `Pin<Box<T, A>>`. If `T` does not implement `Unpin`, then
     /// `x` will be pinned in memory and unable to be moved.
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[unstable(feature = "allocator_api", issue = "32838")]
     #[inline(always)]
     pub fn pin_in(x: T, alloc: A) -> Pin<Self>
@@ -560,7 +560,7 @@ impl<T> Box<[T]> {
     ///
     /// assert_eq!(*values, [1, 2, 3])
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[unstable(feature = "new_uninit", issue = "63291")]
     pub fn new_uninit_slice(len: usize) -> Box<[mem::MaybeUninit<T>]> {
         unsafe { RawVec::with_capacity(len).into_box(len) }
@@ -584,7 +584,7 @@ impl<T> Box<[T]> {
     /// ```
     ///
     /// [zeroed]: mem::MaybeUninit::zeroed
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[unstable(feature = "new_uninit", issue = "63291")]
     pub fn new_zeroed_slice(len: usize) -> Box<[mem::MaybeUninit<T>]> {
         unsafe { RawVec::with_capacity_zeroed(len).into_box(len) }
@@ -614,7 +614,7 @@ impl<T, A: Allocator> Box<[T], A> {
     ///
     /// assert_eq!(*values, [1, 2, 3])
     /// ```
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[unstable(feature = "allocator_api", issue = "32838")]
     // #[unstable(feature = "new_uninit", issue = "63291")]
     pub fn new_uninit_slice_in(len: usize, alloc: A) -> Box<[mem::MaybeUninit<T>], A> {
@@ -641,7 +641,7 @@ impl<T, A: Allocator> Box<[T], A> {
     /// ```
     ///
     /// [zeroed]: mem::MaybeUninit::zeroed
-    #[cfg(not(no_global_oom_handling))]
+    #[cfg(feature = "global-oom-handling")]
     #[unstable(feature = "allocator_api", issue = "32838")]
     // #[unstable(feature = "new_uninit", issue = "63291")]
     pub fn new_zeroed_slice_in(len: usize, alloc: A) -> Box<[mem::MaybeUninit<T>], A> {
@@ -1030,7 +1030,7 @@ impl<T: Default> Default for Box<T> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T> Default for Box<[T]> {
     fn default() -> Self {
@@ -1038,7 +1038,7 @@ impl<T> Default for Box<[T]> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "default_box_extra", since = "1.17.0")]
 impl Default for Box<str> {
     fn default() -> Self {
@@ -1046,7 +1046,7 @@ impl Default for Box<str> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "rust1", since = "1.0.0")]
 impl<T: Clone, A: Allocator + Clone> Clone for Box<T, A> {
     /// Returns a new box with a `clone()` of this box's contents.
@@ -1096,7 +1096,7 @@ impl<T: Clone, A: Allocator + Clone> Clone for Box<T, A> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "box_slice_clone", since = "1.3.0")]
 impl Clone for Box<str> {
     fn clone(&self) -> Self {
@@ -1203,7 +1203,7 @@ impl<T: ?Sized + Hasher, A: Allocator> Hasher for Box<T, A> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "from_for_ptrs", since = "1.6.0")]
 impl<T> From<T> for Box<T> {
     /// Converts a `T` into a `Box<T>`
@@ -1236,7 +1236,7 @@ where
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "box_from_slice", since = "1.17.0")]
 impl<T: Copy> From<&[T]> for Box<[T]> {
     /// Converts a `&[T]` into a `Box<[T]>`
@@ -1262,7 +1262,7 @@ impl<T: Copy> From<&[T]> for Box<[T]> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "box_from_cow", since = "1.45.0")]
 impl<T: Copy> From<Cow<'_, [T]>> for Box<[T]> {
     #[inline]
@@ -1274,7 +1274,7 @@ impl<T: Copy> From<Cow<'_, [T]>> for Box<[T]> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "box_from_slice", since = "1.17.0")]
 impl From<&str> for Box<str> {
     /// Converts a `&str` into a `Box<str>`
@@ -1293,7 +1293,7 @@ impl From<&str> for Box<str> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "box_from_cow", since = "1.45.0")]
 impl From<Cow<'_, str>> for Box<str> {
     #[inline]
@@ -1593,7 +1593,7 @@ impl<T: ?Sized + Unsize<U>, U: ?Sized, A: Allocator> CoerceUnsized<Box<U, A>> fo
 #[unstable(feature = "dispatch_from_dyn", issue = "none")]
 impl<T: ?Sized + Unsize<U>, U: ?Sized> DispatchFromDyn<Box<U>> for Box<T, Global> {}
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "boxed_slice_from_iter", since = "1.32.0")]
 impl<I> FromIterator<I> for Box<[I]> {
     fn from_iter<T: IntoIterator<Item = I>>(iter: T) -> Self {
@@ -1601,7 +1601,7 @@ impl<I> FromIterator<I> for Box<[I]> {
     }
 }
 
-#[cfg(not(no_global_oom_handling))]
+#[cfg(feature = "global-oom-handling")]
 #[stable(feature = "box_slice_clone", since = "1.3.0")]
 impl<T: Clone, A: Allocator + Clone> Clone for Box<[T], A> {
     fn clone(&self) -> Self {
